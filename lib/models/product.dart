@@ -1,7 +1,7 @@
 class Product {
-  final String name;
-  final int count;
-  final double price;
+  String name;      // Назва 
+  int count;        // Кількість
+  double price;     // Ціна
 
   Product({
     required this.name,
