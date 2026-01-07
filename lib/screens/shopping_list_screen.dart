@@ -1,140 +1,84 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/products_provider.dart';
+import '../widgets/new_item.dart';
 import '../models/product.dart';
-import '../widgets/product_item.dart';
-import '../widgets/new_item.dart'; // Підключаємо нашу форму
 
-class ShoppingListScreen extends StatefulWidget {
-  const ShoppingListScreen({super.key});
-
-  @override
-  State<ShoppingListScreen> createState() => _ShoppingListScreenState();
-}
-
-class _ShoppingListScreenState extends State<ShoppingListScreen> {
-  // Список тепер змінний
-  final List<Product> _products = [
-    Product(name: 'Молоко', count: 2, price: 35.0),
-    Product(name: 'Хліб', count: 1, price: 24.5),
-  ];
-
-  // Функція відкриття вікна додавання
-  void _openAddEntryOverlay() async {
-    final newProduct = await showModalBottomSheet<Product>(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => const NewItem(),
-    );
-
-    if (newProduct != null) {
-      setState(() {
-        _products.add(newProduct);
-      });
-    }
-  }
-
-  // Функція редагування
-  void _openEditEntryOverlay(Product product, int index) async {
-    final editedProduct = await showModalBottomSheet<Product>(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => NewItem(product: product),
-    );
-
-    if (editedProduct != null) {
-      setState(() {
-        _products[index] = editedProduct;
-      });
-    }
-  }
-
-  // Функція видалення з можливістю Undo
-  void _removeProduct(int index) {
-    final removedProduct = _products[index];
-    setState(() {
-      _products.removeAt(index);
-    });
-
-    // Показуємо повідомлення знизу (SnackBar)
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${removedProduct.name} видалено'),
-        duration: const Duration(seconds: 3),
-        action: SnackBarAction(
-          label: 'UNDO (ПОВЕРНУТИ)',
-          onPressed: () {
-            setState(() {
-              _products.insert(index, removedProduct);
-            });
-          },
-        ),
-      ),
-    );
-  }
+class ShoppingListScreen extends ConsumerWidget {
+  final Category? categoryFilter; // Якщо null - показуємо все
+  const ShoppingListScreen({super.key, this.categoryFilter});
 
   @override
-  Widget build(BuildContext context) {
-    double totalSum = 0;
-    for (var item in _products) {
-      totalSum += (item.price * item.count);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final allProducts = ref.watch(productsProvider);
+    // Фільтруємо список, якщо вибрана категорія
+    final products = categoryFilter == null 
+        ? allProducts 
+        : allProducts.where((p) => p.category.id == categoryFilter!.id).toList();
+
+    double totalSum = products.fold(0, (sum, item) => sum + (item.price * item.count));
+
+    Widget content = const Center(child: Text('Немає товарів у цій категорії'));
+
+    if (products.isNotEmpty) {
+      content = ListView.builder(
+        itemCount: products.length,
+        itemBuilder: (ctx, index) {
+           final item = products[index];
+           return Dismissible(
+             key: ValueKey(item.id),
+             background: Container(color: Colors.red),
+             onDismissed: (direction) {
+               ref.read(productsProvider.notifier).removeProduct(item);
+               ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                 content: const Text('Видалено'),
+                 action: SnackBarAction(
+                   label: 'Undo',
+                   onPressed: () => ref.read(productsProvider.notifier).undoDelete(item, index),
+                 ),
+               ));
+             },
+             child: InkWell(
+               onTap: () {
+                 showModalBottomSheet(
+                   context: context, 
+                   isScrollControlled: true,
+                   builder: (ctx) => NewItem(product: item));
+               },
+               child: ListTile(
+                 leading: Container(width: 24, height: 24, color: item.category.color),
+                 title: Text(item.name),
+                 subtitle: Text('${item.count} шт. x ${item.price} грн'),
+                 trailing: Text('${(item.count * item.price).toStringAsFixed(1)} грн'),
+               ),
+             ),
+           );
+        },
+      );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Варіант 3: Список Покупок'),
-        backgroundColor: Colors.blue,
-        actions: [
-          IconButton(
-            onPressed: _openAddEntryOverlay,
-            icon: const Icon(Icons.add), // Плюсик справа зверху
+    if (categoryFilter != null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(categoryFilter!.title)),
+        body: content,
+      );
+    }
+
+    return Column(
+      children: [
+        Expanded(child: content),
+        Container(
+          padding: const EdgeInsets.all(16),
+          color: Theme.of(context).colorScheme.primaryContainer,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('РАЗОМ:', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('${totalSum.toStringAsFixed(2)} грн', style: const TextStyle(fontWeight: FontWeight.bold)),
+            ],
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _products.isEmpty
-                ? const Center(child: Text('Список порожній, додайте щось!'))
-                : ListView.builder(
-                    itemCount: _products.length,
-                    itemBuilder: (context, index) {
-                      final item = _products[index];
-                      // Dismissible дозволяє свайпати
-                      return Dismissible(
-                        key: ValueKey(item.hashCode), // Унікальний ключ
-                        background: Container(
-                          color: Colors.red,
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.only(right: 20),
-                          child: const Icon(Icons.delete, color: Colors.white),
-                        ),
-                        onDismissed: (direction) {
-                          _removeProduct(index);
-                        },
-                        child: InkWell(
-                          onTap: () => _openEditEntryOverlay(item, index),
-                          child: ProductItem(product: item),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(20),
-            color: Colors.blue[50],
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('РАЗОМ:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                Text(
-                  '${totalSum.toStringAsFixed(2)} грн',
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.red),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        )
+      ],
     );
   }
 }
