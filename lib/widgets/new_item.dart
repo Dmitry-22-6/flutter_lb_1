@@ -18,6 +18,7 @@ class _NewItemState extends ConsumerState<NewItem> {
   var _enteredCount = 1;
   var _enteredPrice = 0.0;
   var _selectedCategory = availableCategories['c1']!;
+  var _isSending = false;
 
   @override
   void initState() {
@@ -30,10 +31,14 @@ class _NewItemState extends ConsumerState<NewItem> {
     }
   }
 
-  void _saveItem() {
+  void _saveItem() async {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
       
+      setState(() {
+        _isSending = true;
+      });
+
       final newProduct = Product(
         id: widget.product?.id, 
         name: _enteredName, 
@@ -42,12 +47,9 @@ class _NewItemState extends ConsumerState<NewItem> {
         category: _selectedCategory 
       );
 
-      if (widget.product != null) {
-        ref.read(productsProvider.notifier).editProduct(newProduct);
-      } else {
-        ref.read(productsProvider.notifier).addProduct(newProduct);
-      }
+      await ref.read(productsProvider.notifier).addProduct(newProduct);
       
+      if (!context.mounted) return;
       Navigator.of(context).pop();
     }
   }
@@ -107,7 +109,20 @@ class _NewItemState extends ConsumerState<NewItem> {
               },
             ),
             const SizedBox(height: 12),
-            ElevatedButton(onPressed: _saveItem, child: Text(widget.product == null ? 'Додати' : 'Зберегти'))
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: _isSending ? null : () => Navigator.of(context).pop(), 
+                  child: const Text('Відміна')),
+                ElevatedButton(
+                  onPressed: _isSending ? null : _saveItem, 
+                  child: _isSending 
+                    ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator()) 
+                    : Text(widget.product == null ? 'Додати' : 'Зберегти')
+                ),
+              ],
+            )
           ],
         ),
       ),

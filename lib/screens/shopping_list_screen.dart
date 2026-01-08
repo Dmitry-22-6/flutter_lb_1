@@ -4,21 +4,33 @@ import '../providers/products_provider.dart';
 import '../widgets/new_item.dart';
 import '../models/product.dart';
 
-class ShoppingListScreen extends ConsumerWidget {
-  final Category? categoryFilter; // Якщо null - показуємо все
+class ShoppingListScreen extends ConsumerStatefulWidget {
+  final Category? categoryFilter;
   const ShoppingListScreen({super.key, this.categoryFilter});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ShoppingListScreen> createState() => _ShoppingListScreenState();
+}
+
+class _ShoppingListScreenState extends ConsumerState<ShoppingListScreen> {
+  late Future<void> _productsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _productsFuture = ref.read(productsProvider.notifier).loadProducts();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final allProducts = ref.watch(productsProvider);
-    // Фільтруємо список, якщо вибрана категорія
-    final products = categoryFilter == null 
+    final products = widget.categoryFilter == null 
         ? allProducts 
-        : allProducts.where((p) => p.category.id == categoryFilter!.id).toList();
+        : allProducts.where((p) => p.category.id == widget.categoryFilter!.id).toList();
 
     double totalSum = products.fold(0, (sum, item) => sum + (item.price * item.count));
 
-    Widget content = const Center(child: Text('Немає товарів у цій категорії'));
+    Widget content = const Center(child: Text('Список порожній'));
 
     if (products.isNotEmpty) {
       content = ListView.builder(
@@ -29,21 +41,31 @@ class ShoppingListScreen extends ConsumerWidget {
              key: ValueKey(item.id),
              background: Container(color: Colors.red),
              onDismissed: (direction) {
-               ref.read(productsProvider.notifier).removeProduct(item);
+               final notifier = ref.read(productsProvider.notifier);
+               
+               // Видаляємо візуально
+               notifier.removeLocal(item);
+
+               // Показуємо Undo
+               ScaffoldMessenger.of(context).clearSnackBars();
                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                 duration: const Duration(seconds: 2),
                  content: const Text('Видалено'),
                  action: SnackBarAction(
                    label: 'Undo',
-                   onPressed: () => ref.read(productsProvider.notifier).undoDelete(item, index),
+                   onPressed: () {
+                     notifier.restoreLocal(item, index);
+                   },
                  ),
-               ));
+               )).closed.then((reason) {
+                 if (reason != SnackBarClosedReason.action) {
+                   notifier.deleteFromServer(item.id);
+                 }
+               });
              },
              child: InkWell(
                onTap: () {
-                 showModalBottomSheet(
-                   context: context, 
-                   isScrollControlled: true,
-                   builder: (ctx) => NewItem(product: item));
+                 // Редагування поки не чіпаємо
                },
                child: ListTile(
                  leading: Container(width: 24, height: 24, color: item.category.color),
@@ -57,28 +79,38 @@ class ShoppingListScreen extends ConsumerWidget {
       );
     }
 
-    if (categoryFilter != null) {
+    if (widget.categoryFilter != null) {
       return Scaffold(
-        appBar: AppBar(title: Text(categoryFilter!.title)),
+        appBar: AppBar(title: Text(widget.categoryFilter!.title)),
         body: content,
       );
     }
 
-    return Column(
-      children: [
-        Expanded(child: content),
-        Container(
-          padding: const EdgeInsets.all(16),
-          color: Theme.of(context).colorScheme.primaryContainer,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Scaffold(
+      body: FutureBuilder(
+        future: _productsFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          return Column(
             children: [
-              const Text('РАЗОМ:', style: TextStyle(fontWeight: FontWeight.bold)),
-              Text('${totalSum.toStringAsFixed(2)} грн', style: const TextStyle(fontWeight: FontWeight.bold)),
+              Expanded(child: content),
+              Container(
+                padding: const EdgeInsets.all(16),
+                color: Theme.of(context).colorScheme.primaryContainer,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('РАЗОМ:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('${totalSum.toStringAsFixed(2)} грн', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              )
             ],
-          ),
-        )
-      ],
+          );
+        },
+      ),
     );
   }
 }
